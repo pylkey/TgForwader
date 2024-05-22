@@ -1,6 +1,8 @@
 import time
 import asyncio
 from telethon.sync import TelegramClient
+from fuzzywuzzy import process
+from typing import Union
 
 class TelegramForwarder:
     def __init__(self, api_id, api_hash, phone_number):
@@ -25,8 +27,18 @@ class TelegramForwarder:
             print(f"Chat ID: {dialog.id}, Title: {dialog.title}")
             chats_file.write(f"Chat ID: {dialog.id}, Title: {dialog.title} \n")
           
+        print("Список групп распечатан!")
 
-        print("List of groups printed successfully!")
+    async def find_keywords(self, message, keywords)->Union[int, None]:
+        lst_msg = message.split()
+        for keyword in keywords:
+            ratio = process.extract(keyword, lst_msg, limit=1)
+            if ratio:
+                if ratio[0][1] > 85:
+                    return ratio[0][1]
+            
+        return None
+
 
     async def forward_messages_to_channel(self, source_chat_ids, destination_channel_id, keywords):
         await self.client.connect()
@@ -38,28 +50,26 @@ class TelegramForwarder:
 
         last_message_ids = {chat_id: (await self.client.get_messages(chat_id, limit=1))[0].id for chat_id in source_chat_ids}
 
-        # last_message_id = (await self.client.get_messages(source_chat_id, limit=1))[0].id
-
         while True:
             print("Проверяем сообщения для пересылки...")
             # Get new messages since the last checked message
-            # messages = await self.client.get_messages(source_chat_id, min_id=last_message_id, limit=None)
             for source_chat_id in source_chat_ids:
                 messages = await self.client.get_messages(source_chat_id, min_id=last_message_ids[source_chat_id], limit=None)
 
                 for message in reversed(messages):
                     # Check if the message text includes any of the keywords
                     if keywords:
-                        if message.text and any(keyword in message.text.lower() for keyword in keywords):
-                            print(f"Сообщение содержит следующие слова: {message.text}")
+                        # if message.text and any(keyword in message.text.lower() for keyword in keywords):
+                        #     print(f"Сообщение содержит следующие слова: {message.text}")
+                        if await self.find_keywords(message.text, keywords):
 
                             # Forward the message to the destination channel
-                            await self.client.forward_messages(destination_channel_id, message.text)
+                            await self.client.forward_messages(destination_channel_id, message.id, source_chat_id)
 
                             print("Сообщение переслано")
                     else:
                             # Forward the message to the destination channel
-                            await self.client.forward_messages(destination_channel_id, message.text)
+                            await self.client.forward_messages(destination_channel_id, message.id, source_chat_id)
 
                             print("Сообщение переслано")
 
