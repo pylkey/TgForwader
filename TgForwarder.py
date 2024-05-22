@@ -63,19 +63,14 @@ class TelegramForwarder:
                         #     print(f"Сообщение содержит следующие слова: {message.text}")
                         if await self.find_keywords(message.text, keywords):
 
-                            # Forward the message to the destination channel
+                            # Forward the message to the destination channel and mark as read
                             await self.client.forward_messages(destination_channel_id, message.id, source_chat_id)
+                            await self.client.send_read_acknowledge(source_chat_id, message)
 
                             print("Сообщение переслано")
-                    else:
-                            # Forward the message to the destination channel
-                            await self.client.forward_messages(destination_channel_id, message.id, source_chat_id)
+       
 
-                            print("Сообщение переслано")
-
-
-                # Update the last message ID
-                # last_message_id = max(last_message_id, message.id)
+                    # Update the last message ID
                     last_message_ids[source_chat_id] = max(last_message_ids[source_chat_id], message.id)
 
             # Add a delay before checking for new messages again
