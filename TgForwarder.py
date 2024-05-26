@@ -3,6 +3,9 @@ import asyncio
 from telethon.sync import TelegramClient
 from fuzzywuzzy import process
 from typing import Union
+from telethon.tl.types import PeerChannel
+from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError
+
 
 class TelegramForwarder:
     def __init__(self, api_id, api_hash, phone_number):
@@ -29,15 +32,18 @@ class TelegramForwarder:
           
         print("Список групп распечатан!")
 
-    async def find_keywords(self, message, keywords)->Union[int, None]:
-        lst_msg = message.split()
-        for keyword in keywords:
-            ratio = process.extract(keyword, lst_msg, limit=1)
-            if ratio:
-                if ratio[0][1] > 85:
-                    return ratio[0][1]
-            
-        return None
+    async def find_keywords(self, message, keywords)->Union[str, None]:
+        try:
+            lst_msg = message.split()
+            for keyword in keywords:
+                ratio = process.extract(keyword, lst_msg, limit=1)
+                if ratio:
+                    if ratio[0][1] > 92:
+                        print(f"Сообщение содержит ключевое слово: {keyword}")
+                        return keyword
+            return None
+        except AttributeError:
+            return None
 
 
     async def forward_messages_to_channel(self, source_chat_ids, destination_channel_id, keywords):
@@ -48,33 +54,49 @@ class TelegramForwarder:
             await self.client.send_code_request(self.phone_number)
             await self.client.sign_in(self.phone_number, input('Введите код: '))
 
+        # Get last message_ids
         last_message_ids = {chat_id: (await self.client.get_messages(chat_id, limit=1))[0].id for chat_id in source_chat_ids}
 
         while True:
-            print("Проверяем сообщения для пересылки...")
+            # print("Проверяем сообщения для пересылки...")
             # Get new messages since the last checked message
             for source_chat_id in source_chat_ids:
                 messages = await self.client.get_messages(source_chat_id, min_id=last_message_ids[source_chat_id], limit=None)
 
-                for message in reversed(messages):
+                for message in reversed(messages):    
                     # Check if the message text includes any of the keywords
-                    if keywords:
-                        # if message.text and any(keyword in message.text.lower() for keyword in keywords):
-                        #     print(f"Сообщение содержит следующие слова: {message.text}")
-                        if await self.find_keywords(message.text, keywords):
+                    try:
+                        if keywords:
+                            keyword = await self.find_keywords(message.text, keywords)
+                            if isinstance(keyword, str):
+                                # Forward the message to the destination channel with keywords and mark as read
+                                await self.client.forward_messages(destination_channel_id, message.id, source_chat_id)
+                                entity = await self.client.get_entity(PeerChannel(source_chat_id))
+                                await self.client.send_message(
+                                    destination_channel_id, 
+                                    f'Переслано из {entity.title}, содержит слово {keyword}'
+                                    )
+                                await self.client.send_read_acknowledge(source_chat_id, message)
 
-                            # Forward the message to the destination channel and mark as read
+                                print(f"Сообщение {message.id} переслано из {source_chat_id}")
+                        else:
+                            # Forward the message to the destination channel without keywords
                             await self.client.forward_messages(destination_channel_id, message.id, source_chat_id)
+                            entity = await self.client.get_entity(PeerChannel(source_chat_id))
+                            await self.client.send_message(destination_channel_id, f'Переслано из {entity.title}')
                             await self.client.send_read_acknowledge(source_chat_id, message)
 
-                            print("Сообщение переслано")
-       
+                            print(f"Сообщение {message.id} переслано из {source_chat_id}")
 
+                    except ChatForwardsRestrictedError:
+                        await self.client.send_message(destination_channel_id, f'Не могу переслать сообщение из закрытого канала {entity.title}')
+
+       
                     # Update the last message ID
                     last_message_ids[source_chat_id] = max(last_message_ids[source_chat_id], message.id)
 
             # Add a delay before checking for new messages again
-            await asyncio.sleep(5)  # Adjust the delay time as needed
+            await asyncio.sleep(3)  # Adjust the delay time as needed
 
 
 # Function to read credentials from file
