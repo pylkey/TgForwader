@@ -1,10 +1,71 @@
-import time
+import json
 import asyncio
 from telethon.sync import TelegramClient
-from fuzzywuzzy import process
+# from fuzzywuzzy import process
+from fuzzywuzzy import fuzz
 from typing import Union
 from telethon.tl.types import PeerChannel
 from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, ChannelPrivateError, MessageIdInvalidError
+
+
+MATCH_THRESHOLD = 80
+DEST_GROUP_ID = -1002057223298
+KEYWORDS = ['юрист','суд','аппеляция','процент','взыскать','получение','передача','дкп','дду','исполнительный лист',
+            'собственник квартиры','собственности','осмотр','неустойка','стоимость','надзор','приемщик','квартира',
+            'отзыв','новостройка','услуга','помощь','компании','черновая','предчистовая','профессиональная','заказать',
+            'независимая','окна','застройщика','покупке','продаже','специалистами','специалист','нанять','профессиональные',
+            'взыскание','компенсации','юридическое','ключи','мораторий','акт', 'приема-передачи','постамат','задержка',
+            'приемка','обмер','замер','дизайн-проект','дизайн','проект','принять','недостатки','покраска','обоев','стен',
+            'замена','ламинат','ремонт','отделочные','мастер','плитка','клининг','уборка','торт','тортик','кондиционер',
+            'кондиционерщик','установка','мебель','кухня','потолок','натяжной','контакты','данные','оказывает',
+            'порекомендуйте','посоветуйте','ванна','кварц','винил','кварцвинил','оценка']
+
+
+class GetSettings:
+    def __init__(self, api_id, api_hash, phone_number):
+        self.api_id = api_id
+        self.api_hash = api_hash
+        self.phone_number = phone_number
+        self.client = TelegramClient('session_' + phone_number, api_id, api_hash)
+
+        # Structure json 
+        self.data = {
+            'chanels':[],
+            'dest_id':DEST_GROUP_ID,
+            'keywords':KEYWORDS
+        }
+
+    async def get_list_chats(self, data) -> dict:
+        # Get a list of all the dialogs (chats)
+        dialogs = await self.client.get_dialogs()
+        # Information about each chat
+        for dialog in dialogs:
+            data['chanels'].append({
+                'id':dialog.id,
+                'title':dialog.title
+            })          
+        print("Список групп распечатан!")
+        return data
+    
+    async def write_setting(self, data) -> None:
+        with open('settings.json', 'w', encoding='utf-8') as json_file:
+            json.dump(data, json_file, ensure_ascii=False, indent=4)
+
+        print("Данные успешно сохранены в settings.json")
+
+    async def make_settings_file(self) -> None:
+        await self.client.connect()
+
+        # Ensure you're authorized
+        if not await self.client.is_user_authorized():
+            await self.client.send_code_request(self.phone_number)
+            await self.client.sign_in(self.phone_number, input('Введите код: '))
+
+        await self.get_list_chats(self.data)
+        await self.write_setting(self.data)
+        print('Проверить список групп в файле settings.json. Группы начинаются с "-100"')
+
+        
 
 
 class TelegramForwarder:
@@ -14,33 +75,15 @@ class TelegramForwarder:
         self.phone_number = phone_number
         self.client = TelegramClient('session_' + phone_number, api_id, api_hash)
 
-    async def list_chats(self) -> None:
-        await self.client.connect()
-
-        # Ensure you're authorized
-        if not await self.client.is_user_authorized():
-            await self.client.send_code_request(self.phone_number)
-            await self.client.sign_in(self.phone_number, input('Введите код: '))
-
-        # Get a list of all the dialogs (chats)
-        dialogs = await self.client.get_dialogs()
-        chats_file = open(f"chats_of_{self.phone_number}.txt", "w", encoding='utf-8')
-        # Print information about each chat
-        for dialog in dialogs:
-            print(f"Chat ID: {dialog.id}, Title: {dialog.title}")
-            chats_file.write(f"Chat ID: {dialog.id}, Title: {dialog.title} \n")
-          
-        print("Список групп распечатан!")
-
+    
     async def find_keywords(self, message, keywords)->Union[str, None]:
         try:
             lst_msg = message.split()
             for keyword in keywords:
-                ratio = process.extract(keyword, lst_msg, limit=1)
-                if ratio:
-                    if ratio[0][1] > 92:
-                        print(f"Сообщение содержит ключевое слово: {keyword}")
-                        return keyword
+                ratio = fuzz.token_sort_ratio(keyword, lst_msg)
+                if ratio > MATCH_THRESHOLD:
+                    print(f"Сообщение содержит ключевое слово: {keyword}")
+                    return keyword
             return None
         except AttributeError:
             return None
@@ -100,7 +143,7 @@ class TelegramForwarder:
                                     )
                                 await self.client.send_read_acknowledge(source_chat_id, message)
 
-                                print(f"Сообщение {message.id} переслано из {source_chat_id}")
+                                print(f"Сообщение {message.id} переслано из {entity.title} {source_chat_id}")
                         else:
                             # Forward the message to the destination channel without keywords
                             await self.client.forward_messages(destination_channel_id, message.id, source_chat_id)
@@ -148,27 +191,39 @@ async def main():
 
     # If credentials not found in file, prompt the user to input them
     if api_id is None or api_hash is None or phone_number is None:
-        api_id = input("ВВедите ваш API ID: ")
+        api_id = input("Введите ваш API ID: ")
         api_hash = input("Введите ваш API Hash: ")
         phone_number = input("Введите ваш номер телефона: ")
         # Write credentials to file for future use
         write_credentials(api_id, api_hash, phone_number)
 
     forwarder = TelegramForwarder(api_id, api_hash, phone_number)
+    setup = GetSettings(api_id, api_hash, phone_number)
     
     print("Выберете опции (ввести цифру):")
-    print("1. Список чатов")
+    print("1. Заполнить список пересылаемых чатов")
     print("2. Пересылать сообщения")
     
     choice = input("Введите свой выбор: ")
     
     if choice == "1":
-        await forwarder.list_chats()
+        await setup.make_settings_file()
     elif choice == "2":
-        source_chat_ids = list(map(int, input("Введите исходные (откуда будут пересылаться сообщения) chat ID через запятую: ").split(",")))
-        destination_channel_id = int(input("Введите целевой (куда будут пересылаться сообщения) chat ID: "))
-        print("Введите слова, если вы хотите пересылать сообщения содержащие эти слова или оставьте пустым, чтобы получать каждое сообщение")
-        keywords = input("Печатайте слова разделяя их запятыми или оставьте пустым: ").split(",")
+        try:
+            with open('settings.json', 'r', encoding='utf-8') as file:
+                data = file.read()
+
+                obj = json.loads(data)
+
+                source_chat_ids = []
+                for channel in obj['chanels']:
+                    source_chat_ids.append(channel['id'])
+                
+                destination_channel_id = obj['dest_id']
+
+                keywords = obj['keywords']
+        except FileNotFoundError:
+            exit('Проверте наличие файла "settings.json"')
         
         await forwarder.forward_messages_to_channel(source_chat_ids, destination_channel_id, keywords)
     else:

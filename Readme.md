@@ -9,7 +9,7 @@
 
 *Первый запуск*
 
-Выполнить `python tg_forwarder.py` необходимо ввести  API ID and API Hash (взать из https://my.telegram.org/apps) и свой номер телефона. 
+Выполнить `python tg_forwarder.py` необходимо ввести  API ID and API Hash (взять из https://my.telegram.org/apps) и свой номер телефона. 
 
 Скрипт покажет меню 
 
@@ -23,7 +23,7 @@
 
 *Пересылка сообщений*
 
-Выполнить `python TgTorwarder.py`. Скрит покажет меню
+Выполнить `python tg_forwarder.py`. Скрит покажет меню
 `Выберете опции (ввести цифру)`
 
 `1. Список чатов`
