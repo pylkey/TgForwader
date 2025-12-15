@@ -1,14 +1,14 @@
 import json
 import asyncio
 from telethon.sync import TelegramClient
-# from fuzzywuzzy import process
-from fuzzywuzzy import fuzz
+# from fuzzywuzzy import fuzz
+from fuzzywuzzy import process
 from typing import Union
 from telethon.tl.types import PeerChannel
 from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, ChannelPrivateError, MessageIdInvalidError
 
 
-MATCH_THRESHOLD = 80
+MATCH_THRESHOLD = 93
 DEST_GROUP_ID = -1002057223298
 KEYWORDS = ['юрист','суд','аппеляция','процент','взыскать','получение','передача','дкп','дду','исполнительный лист',
             'собственник квартиры','собственности','осмотр','неустойка','стоимость','надзор','приемщик','квартира',
@@ -80,10 +80,15 @@ class TelegramForwarder:
         try:
             lst_msg = message.split()
             for keyword in keywords:
-                ratio = fuzz.token_sort_ratio(keyword, lst_msg)
-                if ratio > MATCH_THRESHOLD:
-                    print(f"Сообщение содержит ключевое слово: {keyword}")
-                    return keyword
+                ratio = process.extract(keyword, lst_msg, limit=1)
+                if ratio:
+                    if ratio[0][1] > MATCH_THRESHOLD:
+                        print(f"Сообщение содержит ключевое слово: {keyword}")
+                        return keyword
+                # ratio = fuzz.token_sort_ratio(keyword, lst_msg)
+                # if ratio > MATCH_THRESHOLD:
+                #     print(f"Сообщение содержит ключевое слово: {keyword}")
+                #     return keyword
             return None
         except AttributeError:
             return None
